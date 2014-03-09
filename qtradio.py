@@ -247,7 +247,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         elif self.demodSub2:
             demodSub2 = True
             
-        spectrum = np.fft.fft(rebuilt) * spectral_window(rebuilt.size)
+        spectrum = np.fft.fft(rebuilt* spectral_window(rebuilt.size))
 
 
          #toplot = self.plotChannel
