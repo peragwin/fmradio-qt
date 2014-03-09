@@ -110,6 +110,8 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
                                     rate = 48000,
                                     output = True)
 
+        self.PLL = PhaseLockedLoop(self.N_samples,19000,self.sample_rate)
+
         self.noisefilt = np.ones(6554)
         b,a = signal.butter(1, 2122/48000*2*np.pi, btype='low')
         self.demph_zf = signal.lfilter_zi(b, a)
@@ -179,16 +181,16 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.axes.yaxis.set_major_locator(ticker.NullLocator())
         #self.axes.invert_yaxis()
 
-############
-    def replot(self):
+
+    def replot(self,toPlot):
         self.axes.clear()
-        self.axes.plot(self.toPlot[0],self.toPlot[1])
+        self.axes.plot(toPlot[0],toPlot[1])
         self.axes.set_aspect('auto',anchor='C')
         self.canvas.draw()
 
     def setDrawSpec(self,s):
         self.toDraw = s
-#############
+
     def drawSpectrum(self):
         self.axes.clear()
         self.axes.imshow(self.spectrogram, cmap='spectral')
@@ -222,6 +224,8 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.toDrawPlots = not s
 
     def setFreq(self,freq):
+        if freq % 2 == 0:
+            freq += 1
         freq /= 10.0
         text = "%.1f MHz" % freq
         self.ui.curFreq.setText(text)
@@ -446,6 +450,18 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         n_z = rebuilt.size
         if demodMain:
 
+            h = signal.firwin(128,16000,nyq=1.2e5)
+            output = signal.fftconvolve(rebuilt,h)
+            outputa = output    # could be done in place but I'm not concerned with memory
+
+            outputa[:h.size/2] += self.prevConvo1[h.size/2:]   #add the latter half of tail end of the previous convolution
+            outputa = np.append(self.prevConvo1[:h.size/2], outputa) # also delayed by half size of h so append the first half
+
+            self.prevConvo1 = output[output.size-h.size:]   # set the tail for next iteration
+
+            output = outputa[:output.size-h.size:self.decim_r2]  # chop off the tail and decimate
+
+
             #stereo_spectrum = spectrum
             if self.useStereo:
                 isStereo = True
@@ -459,36 +475,22 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
               #  lpmod = signal.fftconvolve(pimod,h,mode='same')
              #   diff = lpmod[::self.decim_r2]
 
-                pilot = rebuilt * np.cos(2*np.pi*19/240*np.r_[0:rebuilt.size])
-                h = signal.hanning(256,sym=True)
-                ph_offset = 128
-                pilotph = signal.fftconvolve(pilot,h,mode='same')
-
-                moddif = rebuilt * np.cos(2*np.pi*38/240*(np.r_[-ph_offset:ss-ph_offset] + pilotph))
+                pilot = rebuilt * np.cos(2*np.pi*19/240*(np.r_[0:rebuilt.size]))
+                h = signal.firwin(256,[18000,20000],pass_zero=False,nyq=1.2e5)
+                pilot_actual = signal.fftconvolve(pilot,h,mode='same')
+                self.PLL.adjust(pilot_actual)
+               
+                moddif = rebuilt * self.PLL.pllx2() #np.cos(2*np.pi*38/240*(np.r_[0:ss] - phase_shift))
                 h = signal.firwin(128,16000,nyq=1.2e5)
                 moddif = signal.fftconvolve(moddif,h,mode='same')
-        #        mod_spectrum = np.roll(spectrum,int(.5*n_z*38000/120000))
-        #        mod_spectrum += np.roll(spectrum,int(-.5*n_z*38000/120000)) #np.fft.fft(modulated)
-        #        mod_spectrum *= self.lpf # * np.exp(2j * np.pi * pilotph)#np.fft.ifftshift(np.hamming(stereo_spectrum.size))
-        #        stereo_spectrum = np.append(mod_spectrum[0:np.ceil(n_z/self.decim_r2*.5)],mod_spectrum[n_z-np.ceil(n_z/self.decim_r2*.5):n_z])
-        #        diff = np.fft.ifft(stereo_spectrum)
-
+ 
                 h = signal.firwin(64,16000,nyq=48000/2)
                 diff = signal.fftconvolve(moddif[::self.decim_r2],h,mode='same')
 
+               
             #self.base_spectrum = np.append(spectrum[0:int(n_z/self.decim_r2*.5)],spectrum[n_z-int(n_z/self.decim_r2*.5):n_z])
             #output = np.fft.ifft(self.base_spectrum)
 
-            h = signal.firwin(128,16000,nyq=1.2e5)
-            output = signal.fftconvolve(rebuilt,h)
-            outputa = output    # could be done in place but I'm not concerned with memory
-
-            outputa[:h.size/2] += self.prevConvo1[h.size/2:]   #add the latter half of tail end of the previous convolution
-            outputa = np.append(self.prevConvo1[:h.size/2], outputa) # also delayed by half size of h so append the first half
-
-            self.prevConvo1 = output[output.size-h.size:]   # set the tail for next iteration
-
-            output = outputa[:output.size-h.size:self.decim_r2]  # chop off the tail and decimate
 
 
 #             h = signal.firwin(128,16000,nyq=2.4e4)
@@ -538,14 +540,14 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         #dc filter, lol
         output -= np.mean(output)
 
-        if not np.abs(output[0])>0:
+        if self.count < 4:
+            #print "error" # for some reason, output is NaN for the first 2 loops
             return np.zeros(6554)
 
+        
 
 
-
-
-        spectrum = np.fft.fft(output*spectral_window(output.size))
+       
 ########## Denoising Filter Attempts ###############
 #        pwr = np.log(1e-60 + np.abs(spectrum))
 #        if not np.abs(pwr[0]) > 0:
@@ -601,21 +603,22 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
 
         #spectrum = np.fft.fft(stereo[::2])
+        spectrum = np.fft.fft(stereo[::2]*spectral_window(output.size))
         self.plspectrogram = np.roll(self.plspectrogram, 1,axis=1)
         self.plspectrogram[:,0] = np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:20]))
         if(self.toDraw and self.plotPlaying): # and self.count % 2 == 0):
             if self.toDrawWaterfalls:
                 self.drawPlspectrum()
             else:
-                sm = np.abs(np.fft.fftshift(spectrum[::200]))
-                self.toPlot = (np.linspace(-2.4e4,2.4e4,sm.size),sm)
-                self.replot()
+                sm = np.abs(np.fft.fftshift(spectrum[::20]))
+                toPlot = (np.linspace(-2.4e4,2.4e4,sm.size),sm)
+                self.replot(toPlot)
 
 
         if(self.toDraw and self.plotWaveform):
             sm = np.real(output[::20])
-            self.toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
-            self.replot()
+            toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
+            self.replot(toPlot)
 
 
         return np.real(stereo)
@@ -655,7 +658,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     def lowpass(self,x,width):
         #wndw = np.sinc(np.r_[-15:16]/np.pi)/np.pi
         #wndw = np.kaiser(width,6)
-        wndw = signal.firwin(16,width*990,nyq=24000)
+        wndw = signal.firwin(16,width*999,nyq=24000)
         #wndw /= np.sum(wndw)
         new_array = signal.fftconvolve(x, wndw, mode='same')
 
@@ -696,6 +699,24 @@ class MakeDaemon(threading.Thread):
 
     def run(self):
         self.runnable()
+
+class PhaseLockedLoop():
+    phase = 0
+    #phase_shift = 0
+    beta = .1
+    def __init__(self,size,freq,samplerate):
+        self.pll = np.exp(2j*np.pi*freq/samplerate*np.r_[0:size])
+        self.size = size
+        self.freq=freq
+        self.samplerate = samplerate
+    def adjust(self,pilot):
+        #mul = pilot * self.pll
+        dphase = np.angle( self.pll * np.conj(pilot))
+        self.phase += self.beta * dphase
+        self.pll = np.exp(2j*np.pi*self.freq/self.samplerate*(np.r_[0:self.size] - self.phase))
+    def pllx2(self):
+        return np.real(np.square(self.pll))
+
 
 
 def main():
