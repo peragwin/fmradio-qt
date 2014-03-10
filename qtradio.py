@@ -180,20 +180,48 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
             audio_out = out1 #np.append(out1,out2)
             self.play(audio_out)
 
+    def gen_spectrogram(self,x,m):
+        itsreal = np.isreal(x[0])
+
+        lx = x.size
+        nt = (lx +m -1) // m
+        xb = np.append(x,np.zeros(-lx+nt*m))
+        xc = np.append(np.roll(x,int(-m/2)),np.zeros(nt*m - lx))
+
+
+        xr = np.reshape(xb, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
+        xs = np.reshape(xc, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
+
+        xm = np.zeros((m,2*nt),dtype='complex')
+        xm[:,::2] = xr
+        xm[:,1::2] = xs
+
+        if itsreal:
+            spec = np.fft.fftshift(np.fft.fft(xm,int(m/2),axis=0))
+        else:
+            spec = np.fft.fftshift(np.fft.fft(xm,m,axis=0))
+        mx = np.max(spec)
+
+        pwr = 64*(20* np.log(np.abs(spec)/mx + 1e-6)  + 60 )/60
+
+        return np.real(pwr)
+
+
 
     def demodulate(self,samples):
         # DEMODULATION CODE - And the core function
         # samples must be passed in by the caller
 
-        
+
 
         self.count += 1
 
-        spectral_window = signal.blackmanharris
+        spectral_window = signal.hanning
 
         spectrum = np.fft.fftshift(np.fft.fft(samples*spectral_window(samples.size)))
 
         self.spectrogram = np.roll(self.spectrogram, 1,axis=1)
+
         self.spectrogram[:,0] = np.log(np.abs(spectrum[::100]))
 
         if(self.toDraw and self.plotOverall and self.count % 10 == 9):
@@ -246,11 +274,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
             demodSub1 = True
         elif self.demodSub2:
             demodSub2 = True
-            
+
         spectrum = np.fft.fft(rebuilt* spectral_window(rebuilt.size))
 
-
-         #toplot = self.plotChannel
         self.chspectrogram = np.roll(self.chspectrogram, 1,axis=1)
         self.chspectrogram[:,0] = np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:50]))
         if(self.toDraw and self.plotChannel and self.count % 10 == 9):
@@ -259,7 +285,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
              #self.toPlot = (np.linspace(-np.pi,np.pi,plotspectrum.size),plotspectrum)
              #self.replot()
 
-       
+
         n_z = rebuilt.size
         if demodMain:
 
@@ -277,25 +303,33 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
             #stereo_spectrum = spectrum
             if isStereo:
-         
+
                 #pilot = rebuilt * np.cos(2*np.pi*19/240*(np.r_[0:rebuilt.size]))
                 h = signal.firwin(512,[18000,20000],pass_zero=False,nyq=1.2e5)
                 pilot_actual = signal.fftconvolve(rebuilt,h,mode='same')
                 self.PLL.adjust(pilot_actual)
-                
-                moddif = rebuilt * self.PLL.pllx2() #np.cos(2*np.pi*38/240*(np.r_[0:ss] - phase_shift))
+
+
+                moddif = rebuilt * np.real(np.square(self.PLL.pll)) #np.cos(2*np.pi*38/240*(np.r_[0:ss] - phase_shift))
                 h = signal.firwin(128,16000,nyq=1.2e5)
                 moddif = signal.fftconvolve(moddif,h,mode='same')
- 
+
                 h = signal.firwin(64,16000,nyq=48000/2)
                 diff = signal.fftconvolve(moddif[::self.decim_r2],h,mode='same')
 
-   
+#                 rdbs = rebuilt * np.power(self.PLL.pll,3)
+#                 h = signal.hanning(1024)
+#                 rdbs = signal.fftconvolve(rdbs,h)
+#                 if np.mean(rdbs) > 0:
+#                     # bit ONE
+#                 else:
+#                     # bit ZERO
+
         elif demodSub1:
 
 
             demod = rebuilt * np.exp(-2j*np.pi*67650/2.4e5*np.r_[0:rebuilt.size])
-  
+
             h = signal.firwin(128,7500,nyq=2.4e5/2)
             lp_demod = signal.fftconvolve(demod,h,mode='same')
             decim = lp_demod[::self.decim_r2]
@@ -313,11 +347,11 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
         elif demodSub2:
             demod = rebuilt * np.exp(-2j*np.pi*92000/2.4e5*np.r_[0:rebuilt.size])
-      
+
             h = signal.firwin(128,7500,nyq=2.4e5/2)
             lp_demod = signal.fftconvolve(demod,h,mode='same')
             decim = lp_demod[::self.decim_r2]
-   
+
 
             dphase = np.zeros(decim.size, dtype='complex')
 #
@@ -380,7 +414,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
                 toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
                 self.replot(toPlot)
             else:
-                sm = np.real(self.PLL.pll[::200])
+                sm = np.real(rdbs[::200])
                 toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
                 self.replot(toPlot)
 
@@ -657,8 +691,8 @@ class PhaseLockedLoop():
         dphase = np.angle( self.pll * np.conj(pilot))
         self.phase += self.beta * dphase
         self.pll = np.exp(2j*np.pi*self.freq/self.samplerate*(np.r_[0:self.size] - self.phase))
-    def pllx2(self):
-        return np.real(np.square(self.pll))
+  #  def pllx2(self):
+   #     return np.square(self.pll)
 
 
 
