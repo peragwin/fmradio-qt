@@ -76,6 +76,11 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     toPlot = (np.cumsum(np.ones(5780)),np.cumsum(np.ones(5780)))
 
     def __init__(self,freq,N_samples):
+        self.spectrogram = np.zeros((328,200))
+        self.chspectrogram = np.zeros((328,200))
+        self.plspectrogram = np.zeros((164,200))
+        self.cur_spectrogram = self.spectrogram
+
 
         QtGui.QMainWindow.__init__(self)
         self.ui = Ui_MainWindow()
@@ -94,9 +99,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.N_samples = N_samples
         self.is_sampling = False
 
-        self.spectrogram = np.zeros((328,200))
-        self.chspectrogram = np.zeros((328,200))
-        self.plspectrogram = np.zeros((164,200))
+        
 
         self.sdr =  RtlSdr()
         #self.sdr.direct_sampling = 1
@@ -167,9 +170,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
                 samples = self.sample_buffer.get()
                 #samples2 = self.sample_buffer.get()
             except:
-                print "wtf idk no samples?"  # even though this can't happen... (although I'm not sure why not)
-                print 'gonna try to finish off the to-do list'
-                self.sample_buffer.join()
+                #print "wtf idk no samples?"  # even though this can't happen... (although I'm not sure why not)
+                #print 'gonna try to finish off the to-do list'
+                #self.sample_buffer.join()
                 break
 
             out1 = self.demodulate(samples)
@@ -224,10 +227,11 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
         self.spectrogram[:,0] = np.log(np.abs(spectrum[::100]))
 
-        if(self.toDraw and self.plotOverall and self.count % 10 == 9):
+        if(self.plotOverall):# and self.count % 10 == 9):
 #             self.toPlot = (np.linspace(-5e5,5e5,spectrum.size),np.abs(spectrum))
 #             self.replot()
-            self.drawSpectrum()
+            #self.drawSpectrum()
+            self.cur_spectrogram = self.spectrogram
 
 
 
@@ -279,8 +283,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
         self.chspectrogram = np.roll(self.chspectrogram, 1,axis=1)
         self.chspectrogram[:,0] = np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:50]))
-        if(self.toDraw and self.plotChannel and self.count % 10 == 9):
-            self.drawChspectrum()
+        if(self.plotChannel):# and self.count % 10 == 9):
+            self.cur_spectrogram = self.chspectrogram
+            #self.drawChspectrum()
              #plotspectrum = np.abs(channel_spectrum[::100])
              #self.toPlot = (np.linspace(-np.pi,np.pi,plotspectrum.size),plotspectrum)
              #self.replot()
@@ -399,24 +404,27 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         spectrum = np.fft.fft(stereo[::2]*spectral_window(output.size))
         self.plspectrogram = np.roll(self.plspectrogram, 1,axis=1)
         self.plspectrogram[:,0] = np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:20]))
-        if(self.toDraw and self.plotPlaying): # and self.count % 2 == 0):
-            if self.toDrawWaterfalls:
-                self.drawPlspectrum()
-            else:
-                sm = np.abs(np.fft.fftshift(spectrum[::20]))
-                toPlot = (np.linspace(-2.4e4,2.4e4,sm.size),sm)
-                self.replot(toPlot)
+        if(self.plotPlaying): # and self.count % 2 == 0):
+            #if self.toDrawWaterfalls:
+            self.cur_spectrogram = self.plspectrogram
+                
+                #self.drawPlspectrum()
+            #else:
+                
+            #    sm = np.abs(np.fft.fftshift(spectrum[::20]))
+            #    toPlot = (np.linspace(-2.4e4,2.4e4,sm.size),sm)
+            #    self.replot(toPlot)
 
 
-        if(self.toDraw and self.plotWaveform):
-            if self.toDrawWaterfalls:
-                sm = np.real(output[::20])
-                toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
-                self.replot(toPlot)
-            else:
-                sm = np.real(rdbs[::200])
-                toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
-                self.replot(toPlot)
+        #if(self.toDraw and self.plotWaveform):
+        #    if self.toDrawWaterfalls:
+        #        sm = np.real(output[::20])
+        #        toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
+        #        self.replot(toPlot)
+        #    else:
+        #        sm = np.real(self.PLL.pll[::200])
+        #        toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
+        #        self.replot(toPlot)
 
         return np.real(.25*stereo)
 
@@ -524,7 +532,10 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.axes.xaxis.set_major_locator(ticker.NullLocator())
         self.axes.yaxis.set_major_locator(ticker.NullLocator())
         #self.axes.invert_yaxis()
-
+        
+        self.anim = animation.FuncAnimation(self.fig,self.drawCurSpectrum,interval=750)
+        #self.anim_t = threading.Thread(target=animation.FuncAnimation,args=(self.fig,self.drawCurSpectrum,),kwargs={'interval':500}) 
+        #self.anim_t.start()
 
     def replot(self,toPlot):
         self.axes.clear()
@@ -534,6 +545,14 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
     def setDrawSpec(self,s):
         self.toDraw = s
+
+    def drawCurSpectrum(self,idk=None):
+        self.axes.clear()
+        self.axes.imshow(self.cur_spectrogram, cmap='spectral')
+        self.axes.xaxis.set_major_locator(ticker.NullLocator())
+        self.axes.yaxis.set_major_locator(ticker.NullLocator())
+        self.axes.set_aspect('auto',adjustable='box',anchor='NW')
+        self.canvas.draw()
 
     def drawSpectrum(self):
         self.axes.clear()
@@ -560,10 +579,12 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.canvas.draw()
 
     def setDrawPlots(self,s):
+        
         self.toDrawPlots = s
         self.toDrawWaterfalls = not s
 
     def setDrawWaterfalls(self,s):
+       
         self.toDrawWaterfalls = s
         self.toDrawPlots = not s
 
@@ -614,6 +635,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
     def setSpectrumOverall(self,s):
         #self.initplot()
+        #self.cur_spectrogram = self.spectrogram
         self.plotOverall = s
         self.plotChannel = not s
         self.plotPlaying = not s
@@ -663,7 +685,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.sdr.close()
         print "pyaudio terminated"
         self.pa.terminate()
-        sys.exit()
+        #sys.exit()
 
 
 class MakeDaemon(threading.Thread):

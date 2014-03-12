@@ -152,7 +152,7 @@ class Processor:
         #spec = gen_spec(audible,256)
         #show_image(spec)
 
-        return np.real(audible)
+        return np.real(.5*audible)
 
 def sampler():
     sdr.read_samples_async(sampler_callback,32768)
