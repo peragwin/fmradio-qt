@@ -76,9 +76,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     toPlot = (np.cumsum(np.ones(5780)),np.cumsum(np.ones(5780)))
 
     def __init__(self,freq,N_samples):
-        self.spectrogram = np.zeros((328,200))
-        self.chspectrogram = np.zeros((328,200))
-        self.plspectrogram = np.zeros((164,200))
+        self.spectrogram = np.zeros((512,400))
+        self.chspectrogram = np.zeros((512,400))
+        self.plspectrogram = np.zeros((256,200))
         self.cur_spectrogram = self.spectrogram
 
 
@@ -200,12 +200,13 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         xm[:,1::2] = xs
 
         if itsreal:
-            spec = np.fft.fftshift(np.fft.fft(xm,int(m/2),axis=0))
+            spec = np.fft.fft(xm,m,axis=0)
+            spec = spec[:m//2,:]
         else:
             spec = np.fft.fftshift(np.fft.fft(xm,m,axis=0))
-        mx = np.max(spec)
+        #mx = np.max(spec)
 
-        pwr = 64*(20* np.log(np.abs(spec)/mx + 1e-6)  + 60 )/60
+        pwr = np.log(np.abs(spec) + 1e-6)
 
         return np.real(pwr)
 
@@ -221,11 +222,11 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
         spectral_window = signal.hanning
 
-        spectrum = np.fft.fftshift(np.fft.fft(samples*spectral_window(samples.size)))
-
-        self.spectrogram = np.roll(self.spectrogram, 1,axis=1)
-
-        self.spectrogram[:,0] = np.log(np.abs(spectrum[::100]))
+        #spectrum = np.fft.fftshift(np.fft.fft(samples*spectral_window(samples.size)))
+        
+        self.spectrogram = np.roll(self.spectrogram, 16,axis=1)
+        stft = self.gen_spectrogram(samples,samples.size//8)[::8,:]
+        self.spectrogram[:,:16] = stft     # np.log(np.abs(spectrum[::100]))
 
         if(self.plotOverall):# and self.count % 10 == 9):
 #             self.toPlot = (np.linspace(-5e5,5e5,spectrum.size),np.abs(spectrum))
@@ -260,7 +261,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 #         else:
 #             rebuilt = self.lowpass(np.angle(dphase),self.demodFiltSize)
 
-        rebuilt = np.angle(dphase) / np.pi
+        rebuilt = np.real(np.angle(dphase) / np.pi)
 
 
         power = np.abs(self.mad(lp_samples))
@@ -279,10 +280,11 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         elif self.demodSub2:
             demodSub2 = True
 
-        spectrum = np.fft.fft(rebuilt* spectral_window(rebuilt.size))
-
-        self.chspectrogram = np.roll(self.chspectrogram, 1,axis=1)
-        self.chspectrogram[:,0] = np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:50]))
+        #spectrum = np.fft.fft(rebuilt* spectral_window(rebuilt.size))
+        #print rebuilt.size/8
+        self.chspectrogram = np.roll(self.chspectrogram, 16,axis=1)
+        stft = self.gen_spectrogram(rebuilt,rebuilt.size/8)[::-4,:]
+        self.chspectrogram[:,:16] = stft                          # np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:50]))
         if(self.plotChannel):# and self.count % 10 == 9):
             self.cur_spectrogram = self.chspectrogram
             #self.drawChspectrum()
@@ -321,7 +323,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
                 h = signal.firwin(64,16000,nyq=48000/2)
                 diff = signal.fftconvolve(moddif[::self.decim_r2],h,mode='same')
-
+                diff = np.real(diff)
 #                 rdbs = rebuilt * np.power(self.PLL.pll,3)
 #                 h = signal.hanning(1024)
 #                 rdbs = signal.fftconvolve(rdbs,h)
@@ -368,9 +370,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
             output = signal.fftconvolve(dphase,h,mode='same')
 
         # DC block filter, lol, srsly
-        output -= np.mean(output)
+        output -= np.mean(np.real(output))
 
-        if self.count < 4:
+        if np.isnan(output[0]):
             #print "error" # for some reason, output is NaN for the first 2 loops
             return np.zeros(6554)
 
@@ -398,12 +400,16 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
                 output = self.lowpass(output,self.audioFilterSize) # just the tip (kills the 19k pilot)
             stereo[0:stereo.size:2] = output
             stereo[1:stereo.size:2] = output
-
-
+        
+        #normalize to avoid any possible clipping when playing
+        stereo /= 2*np.max(stereo)
         #spectrum = np.fft.fft(stereo[::2])
-        spectrum = np.fft.fft(stereo[::2]*spectral_window(output.size))
-        self.plspectrogram = np.roll(self.plspectrogram, 1,axis=1)
-        self.plspectrogram[:,0] = np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:20]))
+        output = .5*(stereo[::2]+stereo[1::2])
+        
+        #spectrum = np.fft.fft(.5*(stereo[::2]+stereo[1::2])*spectral_window(output.size))
+        self.plspectrogram = np.roll(self.plspectrogram, 26,axis=1)
+        stft = self.gen_spectrogram(output,512)[::-1,:]
+        self.plspectrogram[:,:26] = stft  # np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:20]))
         if(self.plotPlaying): # and self.count % 2 == 0):
             #if self.toDrawWaterfalls:
             self.cur_spectrogram = self.plspectrogram
@@ -426,7 +432,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         #        toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
         #        self.replot(toPlot)
 
-        return np.real(.25*stereo)
+        return np.real(stereo)
 
 
     # Alternate demodulator. Not used, but extremely simple
