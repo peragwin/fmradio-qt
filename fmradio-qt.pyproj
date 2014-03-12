@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{3bc079c8-9aaf-4c34-8148-3fdf011ec01a}</ProjectGuid>
+    <ProjectHome />
+    <StartupFile>rtanimexample.py</StartupFile>
+    <SearchPath />
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <InterpreterId>{2af0f10d-7135-4994-9156-5d01c9c11b7e}</InterpreterId>
+    <InterpreterVersion>2.7</InterpreterVersion>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
+    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'" />
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'" />
+  <ItemGroup>
+    <Content Include="example.gif" />
+    <Compile Include="multirate.py" />
+    <Compile Include="plotgui.py" />
+    <Compile Include="qtradio.py" />
+    <Compile Include="radio-final.py" />
+    <Compile Include="radio-multithread.py" />
+    <Compile Include="radio-slim.py" />
+    <Compile Include="radio.py" />
+    <Compile Include="radioui.py" />
+    <Compile Include="radioui_bak.py" />
+    <Compile Include="radioui_edits.py" />
+    <Compile Include="radio_minimal.py" />
+    <Compile Include="radio_new.py" />
+    <Compile Include="rtanimexample.py" />
+    <Compile Include="setup.py" />
+    <Compile Include="test.py" />
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <InterpreterReference Include="{2af0f10d-7135-4994-9156-5d01c9c11b7e}\2.7" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.Common.targets" />
+</Project>
