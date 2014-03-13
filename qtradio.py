@@ -19,6 +19,8 @@ from matplotlib.figure import Figure
 from matplotlib import animation
 from matplotlib import ticker
 
+import cv2
+
 # System and control imports
 import sys
 import threading
@@ -70,7 +72,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     toDrawPlots = False
 
     prevCutoff = 0
-
+    prevSpec1 = np.zeros(128)
+    prevSpec2 = np.zeros(128)
+    prevSpec3 = np.zeros(128)
     prevConvo1 = np.zeros(128)
 
     toPlot = (np.cumsum(np.ones(5780)),np.cumsum(np.ones(5780)))
@@ -78,7 +82,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     def __init__(self,freq,N_samples):
         self.spectrogram = np.zeros((512,400))
         self.chspectrogram = np.zeros((512,400))
-        self.plspectrogram = np.zeros((256,200))
+        self.plspectrogram = np.zeros((256,400))
         self.cur_spectrogram = self.spectrogram
 
 
@@ -114,6 +118,8 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
                                     output = True)
 
         self.PLL = PhaseLockedLoop(self.N_samples,19000,self.sample_rate)
+
+        self.initOpenCV()
 
         self.noisefilt = np.ones(6554)
         b,a = signal.butter(1, 2122/48000*2*np.pi, btype='low')
@@ -183,34 +189,61 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
             audio_out = out1 #np.append(out1,out2)
             self.play(audio_out)
 
-    def gen_spectrogram(self,x,m):
+    def gen_spectrogram(self,x,m,prevSpec):
         itsreal = np.isreal(x[0])
 
         lx = x.size
-        nt = (lx +m -1) // m
-        xb = np.append(x,np.zeros(-lx+nt*m))
-        xc = np.append(np.roll(x,int(-m/2)),np.zeros(nt*m - lx))
+        nt = (lx) // m
+        NT = (lx +m -1)//m
+        #padsize = NT*m -lx
+        cutsize = lx -nt*m
+        padsize = int(cutsize + m/2)
+ 
+        
+        if not prevSpec.size == padsize:
+            print 'adjust'
+            prevSpec = np.zeros(padsize)
+
+        xp = np.append(x[cutsize:],prevSpec)
+        prevSpec = x[:(padsize)]
+
+        xh = np.zeros((m,nt*2))
+        for n in range(int(nt*2)):
+            block = xp[m*n//2:m*(n+2)//2]
+
+            xh[:,n] = block*np.hanning(block.size)
 
 
-        xr = np.reshape(xb, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
-        xs = np.reshape(xc, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
+        #if self.prevSpec.size == padsize:
+        #    xb = np.append(self.prevSpec[:prevSpec.size-m/2],x)
+        #    xc = np.append(self.prevSpec,x[:lx-m/2])
+        #    self.prevSpec = x[lx-m/2:]
+        #else:
 
-        xm = np.zeros((m,2*nt),dtype='complex')
-        xm[:,::2] = xr
-        xm[:,1::2] = xs
+        #    xb = np.append(x,np.zeros(-lx+nt*m))
+        #    xc = np.append(x[m/2:],np.zeros(nt*m - lx + m/2))
+
+
+        #xr = np.reshape(xb, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
+        #xs = np.reshape(xc, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
+
+        #xm = np.zeros((m,2*nt),dtype='complex')
+        #xm[:,::2] = xr
+        #xm[:,1::2] = xs
 
         if itsreal:
-            spec = np.fft.fft(xm,m,axis=0)
+            spec = np.fft.fft(xh,m,axis=0)
             spec = spec[:m//2,:]
         else:
-            spec = np.fft.fftshift(np.fft.fft(xm,m,axis=0))
+            spec = np.fft.fftshift(np.fft.fft(xh,m,axis=0))
         #mx = np.max(spec)
 
         pwr = np.log(np.abs(spec) + 1e-6)
 
-        return np.real(pwr)
+        return (np.real(pwr),prevSpec)
 
-
+    def initOpenCV(self):
+        cv2.namedWindow("Spectrogram")
 
     def demodulate(self,samples):
         # DEMODULATION CODE - And the core function
@@ -225,15 +258,13 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         #spectrum = np.fft.fftshift(np.fft.fft(samples*spectral_window(samples.size)))
         
         self.spectrogram = np.roll(self.spectrogram, 16,axis=1)
-        stft = self.gen_spectrogram(samples,samples.size//8)[::8,:]
-        self.spectrogram[:,:16] = stft     # np.log(np.abs(spectrum[::100]))
+        stft,self.prevSpec1 = self.gen_spectrogram(samples,samples.size//8,self.prevSpec1)
+        self.spectrogram[:,:16] = stft[::8,:]     # np.log(np.abs(spectrum[::100]))
 
-        if(self.plotOverall):# and self.count % 10 == 9):
-#             self.toPlot = (np.linspace(-5e5,5e5,spectrum.size),np.abs(spectrum))
-#             self.replot()
+        if(self.plotOverall): # and self.count % 10 == 9):
             #self.drawSpectrum()
             self.cur_spectrogram = self.spectrogram
-
+            self.drawCurSpectrum()
 
 
         h = signal.firwin(128, 100000,nyq=self.sample_rate/2)
@@ -283,11 +314,11 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         #spectrum = np.fft.fft(rebuilt* spectral_window(rebuilt.size))
         #print rebuilt.size/8
         self.chspectrogram = np.roll(self.chspectrogram, 16,axis=1)
-        stft = self.gen_spectrogram(rebuilt,rebuilt.size/8)[::-4,:]
-        self.chspectrogram[:,:16] = stft                          # np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:50]))
+        stft,self.prevSpec2 = self.gen_spectrogram(rebuilt,rebuilt.size/8,self.prevSpec2)
+        self.chspectrogram[:,:16] = stft[::-4,:]                          # np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:50]))
         if(self.plotChannel):# and self.count % 10 == 9):
             self.cur_spectrogram = self.chspectrogram
-            #self.drawChspectrum()
+            self.drawCurSpectrum()
              #plotspectrum = np.abs(channel_spectrum[::100])
              #self.toPlot = (np.linspace(-np.pi,np.pi,plotspectrum.size),plotspectrum)
              #self.replot()
@@ -347,7 +378,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
             A = decim[1:decim.size]
             B = decim[0:decim.size-1]
 #
-            dphase[1:] = np.angle( A * np.conj(B) )
+            dphase[1:] = np.real(np.angle( A * np.conj(B) ))
             h = signal.firwin(128,7500,nyq=24000)
             output = signal.fftconvolve(dphase,h,mode='same')
 
@@ -365,12 +396,12 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
             A = decim[1:decim.size]
             B = decim[0:decim.size-1]
 #
-            dphase[1:] = np.angle( A * np.conj(B) )
+            dphase[1:] = np.real(np.angle( A * np.conj(B) ))
             h = signal.firwin(128,7500,nyq=24000)
             output = signal.fftconvolve(dphase,h,mode='same')
 
         # DC block filter, lol, srsly
-        output -= np.mean(np.real(output))
+        output = np.real(output) - np.mean(np.real(output))
 
         if np.isnan(output[0]):
             #print "error" # for some reason, output is NaN for the first 2 loops
@@ -381,7 +412,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         output, zf = signal.lfilter(b, a, output,zi=self.demph_zf)
         self.demph_zf = zf
 
-        stereo = np.zeros(output.size*2, dtype='complex')
+        stereo = np.zeros(output.size*2)
         if (isStereo):
 
             diff = signal.lfilter(b,a,diff)
@@ -407,12 +438,13 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         output = .5*(stereo[::2]+stereo[1::2])
         
         #spectrum = np.fft.fft(.5*(stereo[::2]+stereo[1::2])*spectral_window(output.size))
-        self.plspectrogram = np.roll(self.plspectrogram, 26,axis=1)
-        stft = self.gen_spectrogram(output,512)[::-1,:]
-        self.plspectrogram[:,:26] = stft  # np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:20]))
+        self.plspectrogram = np.roll(self.plspectrogram, 24,axis=1)
+        stft,self.prevSpec3 = self.gen_spectrogram(output,512,self.prevSpec3)
+        self.plspectrogram[:,:24] = stft[::-1,:]  # np.log(np.abs(spectrum[spectrum.size/2:spectrum.size:20]))
         if(self.plotPlaying): # and self.count % 2 == 0):
             #if self.toDrawWaterfalls:
             self.cur_spectrogram = self.plspectrogram
+            self.drawCurSpectrum(invert=True)
                 
                 #self.drawPlspectrum()
             #else:
@@ -537,11 +569,11 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.axes = self.fig.add_subplot(111, aspect=200/431)
         self.axes.xaxis.set_major_locator(ticker.NullLocator())
         self.axes.yaxis.set_major_locator(ticker.NullLocator())
+        self.fig.tight_layout()
         #self.axes.invert_yaxis()
         
-        self.anim = animation.FuncAnimation(self.fig,self.drawCurSpectrum,interval=750)
-        #self.anim_t = threading.Thread(target=animation.FuncAnimation,args=(self.fig,self.drawCurSpectrum,),kwargs={'interval':500}) 
-        #self.anim_t.start()
+        #self.anim = animation.FuncAnimation(self.fig,self.drawCurSpectrum,interval=750)
+     
 
     def replot(self,toPlot):
         self.axes.clear()
@@ -552,13 +584,23 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     def setDrawSpec(self,s):
         self.toDraw = s
 
-    def drawCurSpectrum(self,idk=None):
-        self.axes.clear()
-        self.axes.imshow(self.cur_spectrogram, cmap='spectral')
-        self.axes.xaxis.set_major_locator(ticker.NullLocator())
-        self.axes.yaxis.set_major_locator(ticker.NullLocator())
-        self.axes.set_aspect('auto',adjustable='box',anchor='NW')
-        self.canvas.draw()
+    def drawCurSpectrum(self,invert=False):
+        #self.axes.clear()
+        #self.axes.imshow(self.cur_spectrogram, cmap='spectral')
+        #self.axes.xaxis.set_major_locator(ticker.NullLocator())
+        #self.axes.yaxis.set_major_locator(ticker.NullLocator())
+        #self.axes.set_aspect('auto',adjustable='box',anchor='NW')
+        #self.canvas.draw()
+        mx = np.max(self.cur_spectrogram)
+        mn = np.min(self.cur_spectrogram)
+        if invert:
+            self.cur_spectrogram = -cv2.convertScaleAbs(self.cur_spectrogram,alpha=255 / (mx))
+        else:
+            self.cur_spectrogram = cv2.convertScaleAbs(self.cur_spectrogram,alpha=255 / (mn))
+        self.cur_spectrogram = cv2.GaussianBlur(self.cur_spectrogram,(5,5),.6)
+        cmapped =cv2.applyColorMap(self.cur_spectrogram,cv2.COLORMAP_JET)
+        cv2.imshow('Spectrogram',cmapped)
+        cv2.waitKey(1);
 
     def drawSpectrum(self):
         self.axes.clear()
@@ -685,12 +727,14 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
     # Destructor - also used to exit the program when user clicks "Quit"
     def __del__(self):
+       
         # Program will continue running in the background unless the RTL is told to stop sampling
         self.sdr.cancel_read_async()
         print "sdr closed"
         self.sdr.close()
         print "pyaudio terminated"
         self.pa.terminate()
+        cv2.destroyAllWindows()
         #sys.exit()
 
 
