@@ -99,7 +99,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.N_samples = N_samples
         self.is_sampling = False
 
-        
+
 
         self.sdr =  RtlSdr()
         #self.sdr.direct_sampling = 1
@@ -407,10 +407,10 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         if(self.plotPlaying): # and self.count % 2 == 0):
             #if self.toDrawWaterfalls:
             self.cur_spectrogram = self.plspectrogram
-                
+
                 #self.drawPlspectrum()
             #else:
-                
+
             #    sm = np.abs(np.fft.fftshift(spectrum[::20]))
             #    toPlot = (np.linspace(-2.4e4,2.4e4,sm.size),sm)
             #    self.replot(toPlot)
@@ -426,7 +426,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         #        toPlot = (np.linspace(0,output.size/48000,sm.size),sm)
         #        self.replot(toPlot)
 
-        return np.real(.25*stereo)
+        return np.real(stereo)
 
 
     # Alternate demodulator. Not used, but extremely simple
@@ -532,9 +532,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.axes.xaxis.set_major_locator(ticker.NullLocator())
         self.axes.yaxis.set_major_locator(ticker.NullLocator())
         #self.axes.invert_yaxis()
-        
-        self.anim = animation.FuncAnimation(self.fig,self.drawCurSpectrum,interval=750)
-        #self.anim_t = threading.Thread(target=animation.FuncAnimation,args=(self.fig,self.drawCurSpectrum,),kwargs={'interval':500}) 
+
+        self.anim = animation.FuncAnimation(self.fig,self.drawCurSpectrum,interval=1000)
+        #self.anim_t = threading.Thread(target=animation.FuncAnimation,args=(self.fig,self.drawCurSpectrum,),kwargs={'interval':500})
         #self.anim_t.start()
 
     def replot(self,toPlot):
@@ -579,12 +579,12 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.canvas.draw()
 
     def setDrawPlots(self,s):
-        
+
         self.toDrawPlots = s
         self.toDrawWaterfalls = not s
 
     def setDrawWaterfalls(self,s):
-       
+
         self.toDrawWaterfalls = s
         self.toDrawPlots = not s
 
