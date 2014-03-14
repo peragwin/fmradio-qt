@@ -20,6 +20,8 @@ from matplotlib import animation
 from matplotlib import ticker
 
 import cv2
+from qtimage2numpy import *
+
 
 # System and control imports
 import sys
@@ -61,7 +63,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     stereoWidth = 10
     useMedianFilt = True
     useLPFilt = True
-    demodFiltSize = 11
+    demodFiltSize = 100000
     useAudioFilter = True
     audioFilterSize = 16
     toDraw = True
@@ -76,6 +78,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     prevSpec2 = np.zeros(128)
     prevSpec3 = np.zeros(128)
     prevConvo1 = np.zeros(128)
+    prevConvo2 = np.zeros(128,dtype='complex')
+
+    limiterMax = np.zeros(32)
 
     toPlot = (np.cumsum(np.ones(5780)),np.cumsum(np.ones(5780)))
 
@@ -103,7 +108,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.N_samples = N_samples
         self.is_sampling = False
 
-        
+
 
         self.sdr =  RtlSdr()
         #self.sdr.direct_sampling = 1
@@ -192,22 +197,22 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     def gen_spectrogram(self,x,m,prevSpec):
         itsreal = np.isreal(x[0])
 
+        m = int(m)
         lx = x.size
         nt = (lx) // m
-        NT = (lx +m -1)//m
+        #NT = (lx +m -1)//m
         #padsize = NT*m -lx
         cutsize = lx -nt*m
         padsize = int(cutsize + m/2)
- 
-        
+
+
         if not prevSpec.size == padsize:
-            print 'adjust'
             prevSpec = np.zeros(padsize)
 
         xp = np.append(x[cutsize:],prevSpec)
         prevSpec = x[:(padsize)]
 
-        xh = np.zeros((m,nt*2))
+        xh = np.zeros((m,nt*2), dtype='complex')
         for n in range(int(nt*2)):
             block = xp[m*n//2:m*(n+2)//2]
 
@@ -248,15 +253,12 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
     def demodulate(self,samples):
         # DEMODULATION CODE - And the core function
         # samples must be passed in by the caller
-
-
-
         self.count += 1
 
-        spectral_window = signal.hanning
+        #spectral_window = signal.hanning
 
         #spectrum = np.fft.fftshift(np.fft.fft(samples*spectral_window(samples.size)))
-        
+
         self.spectrogram = np.roll(self.spectrogram, 16,axis=1)
         stft,self.prevSpec1 = self.gen_spectrogram(samples,samples.size//8,self.prevSpec1)
         self.spectrogram[:,:16] = stft[::8,:]     # np.log(np.abs(spectrum[::100]))
@@ -266,9 +268,20 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
             self.cur_spectrogram = self.spectrogram
             self.drawCurSpectrum()
 
+#         cutoff = self.demodFiltSize
+#         h = signal.firwin(128, cutoff,nyq=self.sample_rate/2)
+#         lp = signal.fftconvolve(samples[::self.decim_r1],h,mode='full')
+#         lps = lp.size
+#         hs = h.size
+#         prev = lp[lps-hs:]
+#         lp[:hs/2] += self.prevConvo2[hs/2:]
+#         lp = np.append(self.prevConvo2[:hs/2],lp)
+#         self.prevConvo2 = prev
+#         lp_samples = lp[:lps-hs+1]
+        lp_samples = samples
 
-        h = signal.firwin(128, 100000,nyq=self.sample_rate/2)
-        lp_samples = signal.fftconvolve(samples[::self.decim_r1],h,mode='same')
+        power = np.abs(self.mad(lp_samples))
+        self.ui.signalMeter.setValue(20*(np.log10(power)))
 
 
     # polar discriminator
@@ -283,9 +296,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         dphase[0] = lp_samples[0] * np.conj(self.prevCutoff) #dphase[dphase.size-2]
         self.prevCutoff = lp_samples[lp_samples.size-1]
 
-     # limiting
-        mag = np.abs(dphase)
-        dphase /= mag
+    # limiting
+
+        dphase /= np.abs(dphase)
 
 #         if self.useMedianFilt:
 #             rebuilt = signal.medfilt(np.angle(dphase)/np.pi,self.demodFiltSize) #  np.cos(dphase)
@@ -295,8 +308,6 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         rebuilt = np.real(np.angle(dphase) / np.pi)
 
 
-        power = np.abs(self.mad(lp_samples))
-        self.ui.signalMeter.setValue(20*(np.log10(power)))
 
         demodMain = False
         demodSub1 = False
@@ -328,7 +339,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         if demodMain:
 
             h = signal.firwin(128,16000,nyq=1.2e5)
-            output = signal.fftconvolve(rebuilt,h)
+            output = signal.fftconvolve(rebuilt,h,mode='full')
             outputa = output    # could be done in place but I'm not concerned with memory
 
             outputa[:h.size/2] += self.prevConvo1[h.size/2:]   #add the latter half of tail end of the previous convolution
@@ -431,12 +442,12 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
                 output = self.lowpass(output,self.audioFilterSize) # just the tip (kills the 19k pilot)
             stereo[0:stereo.size:2] = output
             stereo[1:stereo.size:2] = output
-        
+
         #normalize to avoid any possible clipping when playing
         stereo /= 2*np.max(stereo)
         #spectrum = np.fft.fft(stereo[::2])
         output = .5*(stereo[::2]+stereo[1::2])
-        
+
         #spectrum = np.fft.fft(.5*(stereo[::2]+stereo[1::2])*spectral_window(output.size))
         self.plspectrogram = np.roll(self.plspectrogram, 24,axis=1)
         stft,self.prevSpec3 = self.gen_spectrogram(output,512,self.prevSpec3)
@@ -445,10 +456,10 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
             #if self.toDrawWaterfalls:
             self.cur_spectrogram = self.plspectrogram
             self.drawCurSpectrum(invert=True)
-                
+
                 #self.drawPlspectrum()
             #else:
-                
+
             #    sm = np.abs(np.fft.fftshift(spectrum[::20]))
             #    toPlot = (np.linspace(-2.4e4,2.4e4,sm.size),sm)
             #    self.replot(toPlot)
@@ -571,9 +582,9 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.axes.yaxis.set_major_locator(ticker.NullLocator())
         self.fig.tight_layout()
         #self.axes.invert_yaxis()
-        
+
         #self.anim = animation.FuncAnimation(self.fig,self.drawCurSpectrum,interval=750)
-     
+
 
     def replot(self,toPlot):
         self.axes.clear()
@@ -627,12 +638,12 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.canvas.draw()
 
     def setDrawPlots(self,s):
-        
+
         self.toDrawPlots = s
         self.toDrawWaterfalls = not s
 
     def setDrawWaterfalls(self,s):
-       
+
         self.toDrawWaterfalls = s
         self.toDrawPlots = not s
 
@@ -727,7 +738,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
 
     # Destructor - also used to exit the program when user clicks "Quit"
     def __del__(self):
-       
+
         # Program will continue running in the background unless the RTL is told to stop sampling
         self.sdr.cancel_read_async()
         print "sdr closed"
