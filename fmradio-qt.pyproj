@@ -5,7 +5,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{3bc079c8-9aaf-4c34-8148-3fdf011ec01a}</ProjectGuid>
     <ProjectHome />
-    <StartupFile>qtradio.py</StartupFile>
+    <StartupFile>realtime.py</StartupFile>
     <SearchPath />
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
@@ -17,8 +17,9 @@
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'" />
   <PropertyGroup Condition="'$(Configuration)' == 'Release'" />
   <ItemGroup>
+    <Content Include="cyradio.pyx" />
     <Content Include="example.gif" />
-    <Compile Include="multirate.py" />
+    <Compile Include="realtime.py" />
     <Compile Include="plotgui.py" />
     <Compile Include="qtradio.py" />
     <Compile Include="radio-final.py" />
