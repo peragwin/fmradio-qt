@@ -98,7 +98,7 @@ class FMRadio(QtGui.QMainWindow,Ui_MainWindow):
         self.decim_r1 = 1 # 1.024e6/2.4e5 # for wideband fm down from sample_rate
         self.decim_r2 = 2.4e5/48000 # for baseband recovery
         self.center_freq = freq #+250e3
-        self.gain = 22.9
+        self.gain = 16
 
         self.N_samples = N_samples
         self.is_sampling = False

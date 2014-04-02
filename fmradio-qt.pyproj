@@ -5,7 +5,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{3bc079c8-9aaf-4c34-8148-3fdf011ec01a}</ProjectGuid>
     <ProjectHome />
-    <StartupFile>realtime.py</StartupFile>
+    <StartupFile>qtradio.py</StartupFile>
     <SearchPath />
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
