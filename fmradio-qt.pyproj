@@ -17,8 +17,9 @@
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'" />
   <PropertyGroup Condition="'$(Configuration)' == 'Release'" />
   <ItemGroup>
+    <Content Include="cyradio.pyx" />
     <Content Include="example.gif" />
-    <Compile Include="multirate.py" />
+    <Compile Include="realtime.py" />
     <Compile Include="plotgui.py" />
     <Compile Include="qtradio.py" />
     <Compile Include="radio-final.py" />
@@ -30,6 +31,7 @@
     <Compile Include="radioui_edits.py" />
     <Compile Include="radio_minimal.py" />
     <Compile Include="radio_new.py" />
+    <Compile Include="realtime2.py" />
     <Compile Include="rtanimexample.py" />
     <Compile Include="setup.py" />
     <Compile Include="test.py" />

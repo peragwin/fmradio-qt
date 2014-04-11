@@ -16,10 +16,13 @@ from PyQt4 import QtCore, QtGui
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 from PyQt4.QtGui import QWidget
-from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-from matplotlib import ticker #used to get rid of axes labels
-from matplotlib import animation
+
+#from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
+#from matplotlib.figure import Figure
+#from matplotlib import ticker #used to get rid of axes labels
+#from matplotlib import animation
+
+import cv2
 
 try:
     _fromUtf8 = QtCore.QString.fromUtf8
@@ -65,9 +68,9 @@ class MainWindow(QMainWindow):
         
         # set up the main canvas for plotting stuff
         # doing this last because p.spec needs to be set up before drawing it
-        self.initCanvas()
+        #self.initCanvas()
 
-        
+        self.main_frame = cv2.namedWindow('Spectrum')
 
 
     def play(self,samples):
@@ -77,7 +80,7 @@ class MainWindow(QMainWindow):
 
     def draw_image(self,idk):
         self.axes.clear()
-        self.axes.imshow(self.p. spec, cmap='spectral')
+        self.axes.imshow(self.p.spec, cmap='spectral')
         self.axes.xaxis.set_major_locator(ticker.NullLocator())
         self.axes.yaxis.set_major_locator(ticker.NullLocator())
         self.axes.set_aspect('auto',adjustable='box',anchor='NW')
@@ -226,9 +229,14 @@ class Processor:
         self.prevConv2 = output[output.size-h.size:]   # set the tail for next iteration
         audible = outputa[:output.size-h.size:5]  # chop off the tail and decimate
     
-        spectrum = np.log(np.abs( np.fft.fftshift(np.fft.fft(samples))))[::40] #smaller spectrum to handle when drawing
+        spectrum = np.log(np.abs( np.fft.fftshift(np.fft.fft(dmod))))[::8] #smaller spectrum to handle when drawing
         self.spec = np.roll(self.spec,1,axis = 1)
         self.spec[:,0] = spectrum
+
+        spectsc = cv2.convertScaleAbs(self.spec,alpha=255/np.max(self.spec))
+        spect = cv2.applyColorMap(spectsc,cv2.COLORMAP_JET)
+        cv2.imshow('Spectrum',spect)
+        cv2.waitKey(1)
 
         return np.real(.5*audible)
 
@@ -252,6 +260,7 @@ def main():
    frame = MainWindow()
    frame.show()
    app.exec_()
+   cv2.destroyAllWindows()
    frame.__del__()
 
 main()

@@ -10,6 +10,7 @@ import pyaudio
 import threading
 import Queue
 
+import cv2
 
 pa = pyaudio.PyAudio()
 stream = pa.open( format = pyaudio.paFloat32,
@@ -20,62 +21,14 @@ stream = pa.open( format = pyaudio.paFloat32,
 def play(samples):
    
     stream.write( samples.astype(np.float32).tostring() )
-    
-
-def gen_spec(x,m):
-    itsreal = np.isreal(x[0])
-
-    lx = x.size
-    nt = (lx +m -1) // m
-    xb = np.append(x,np.zeros(-lx+nt*m))
-    xc = np.append(np.roll(x,int(m/2)),np.zeros(nt*m - lx))
-
-
-    xr = np.reshape(xb, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
-    xs = np.reshape(xc, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
-
-    xm = np.zeros((m,2*nt),dtype='complex')
-    xm[:,::2] = xr
-    xm[:,1::2] = xs
-
-    if itsreal:
-        spec = np.fft.fftshift(np.fft.fft(xm,int(m/2),axis=0))
-    else:
-        spec = np.fft.fftshift(np.fft.fft(xm,m,axis=0))
-    mx = np.max(spec)
-
-    pwr = 64*(20* np.log(np.abs(spec)/mx + 1e-6)  + 60 )/60
-
-    return np.real(pwr)
-
-def show_image(im):
-    asp = plt.figaspect(3.0/8)
-    fig = plt.figure(figsize=asp, dpi=100)
-    axes = fig.add_subplot(111)
-    axes.imshow(im, aspect='auto', cmap='spectral')
-    
-    plt.show()
-
-
-
-
+   
 
 
 sdr = RtlSdr()
-sdr.center_freq = 94.9e6
+sdr.center_freq = 99.7e6
 sdr.sample_rate = 2.4e5
 sdr.gain = 22.9
 
-
-
-
-
-
-#sdr.close()
-
-#spectrogram = gen_spec(samples,4096)
-
-#show_image(spectrogram)
 
 sample_buffer = Queue.Queue(maxsize=10)
 
@@ -109,6 +62,7 @@ class Processor:
     prevConv1 = np.zeros(256)
     prevConv2 = np.zeros(256)
     prevConv3 = np.zeros(128)
+    spec = np.zeros((256,400))
     def process(self,samples):
 
         #samples = sdr.read_samples(2.56e6)
@@ -151,12 +105,49 @@ class Processor:
         #print audible.size
         #spec = gen_spec(audible,256)
         #show_image(spec)
+   
+        self.spec = np.roll(self.spec,26,axis=1)
+
+        self.spec[:,:26] = gen_spec(np.real(audible),512)   ##np.abs(np.fft.fft(audible)[:audible.size/2:-4])
+        spec = cv2.GaussianBlur(self.spec,(5,5),1,.75)
+        spectsc = cv2.convertScaleAbs(self.spec,alpha=255/np.max(spec))
+        spect = cv2.applyColorMap(spectsc,cv2.COLORMAP_JET)
+        
+        cv2.imshow('Spectrum',spect)
+        cv2.waitKey(1)
 
         return np.real(.5*audible)
 
 def sampler():
     sdr.read_samples_async(sampler_callback,32768)
 
+
+def gen_spec(x,m):
+    itsreal = np.isreal(x[0])
+
+    lx = x.size
+    nt = (lx +m -1) // m
+    xb = np.append(x,np.zeros(-lx+nt*m))
+    xc = np.append(np.roll(x,int(m/2)),np.zeros(nt*m - lx))
+
+
+    xr = np.reshape(xb, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
+    xs = np.reshape(xc, (m,nt), order='F') * np.outer(np.hanning(m),np.ones(nt))
+
+    xm = np.zeros((m,2*nt),dtype='complex')
+    xm[:,::2] = xr
+    xm[:,1::2] = xs
+    #xm=xr
+
+    if itsreal:
+        spec = np.fft.fft(xm,m,axis=0)[int(m/2):]
+    else:
+        spec = np.fft.fftshift(np.fft.fft(xm,m,axis=0))
+  
+
+    pwr = np.log(np.abs(spec)+ 1e-6)
+
+    return np.real(pwr)
 
 process_d = MakeDaemon(process_th)
 process_d.start()
